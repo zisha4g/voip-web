@@ -3,20 +3,35 @@ import { useNavigate } from 'react-router-dom'
 import { Container, Box, TextField, Button, Typography, Paper, Alert, CircularProgress } from '@mui/material'
 import PhoneIcon from '@mui/icons-material/Phone'
 
-function Login() {
+function Register() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
   const navigate = useNavigate()
 
-  const handleLogin = async (e) => {
+  const handleRegister = async (e) => {
     e.preventDefault()
     setError('')
+    setSuccess('')
+
+    // Validation
+    if (password !== confirmPassword) {
+      setError('Passwords do not match')
+      return
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters')
+      return
+    }
+
     setLoading(true)
 
     try {
-      const response = await fetch('http://localhost:8000/api/auth/login', {
+      const response = await fetch('http://localhost:8000/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
@@ -25,16 +40,16 @@ function Login() {
       const data = await response.json()
 
       if (data.success) {
-        localStorage.setItem('token', data.token)
-        localStorage.setItem('user', JSON.stringify(data.user))
-        localStorage.setItem('isAuthenticated', 'true')
-        navigate('/dashboard')
+        setSuccess('Registration successful! Redirecting to login...')
+        setTimeout(() => {
+          navigate('/login')
+        }, 2000)
       } else {
-        setError(data.error || 'Login failed')
+        setError(data.error || 'Registration failed. Email may not exist in VoIP.ms system.')
       }
     } catch (err) {
       setError('Connection error. Make sure backend is running on http://localhost:8000')
-      console.error('Login error:', err)
+      console.error('Registration error:', err)
     } finally {
       setLoading(false)
     }
@@ -67,10 +82,10 @@ function Login() {
 
           {/* Title */}
           <Typography variant="h5" align="center" fontWeight="600" gutterBottom>
-            Welcome to VoIP Portal
+            Create Your Password
           </Typography>
           <Typography variant="body2" align="center" color="text.secondary" sx={{ mb: 4 }}>
-            The Key to Smarter Communication.
+            Register using your VoIP.ms email address
           </Typography>
 
           {/* Error Alert */}
@@ -80,24 +95,31 @@ function Login() {
             </Alert>
           )}
 
+          {/* Success Alert */}
+          {success && (
+            <Alert severity="success" sx={{ mb: 3 }}>
+              {success}
+            </Alert>
+          )}
+
           {/* Form */}
-          <form onSubmit={handleLogin}>
+          <form onSubmit={handleRegister}>
             <Typography variant="body2" fontWeight="500" sx={{ mb: 1 }}>
-              Email Address
+              VoIP.ms Email Address
             </Typography>
             <TextField
               fullWidth
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="Enter your email"
+              placeholder="Enter your VoIP.ms email"
               sx={{ mb: 2.5 }}
               required
               disabled={loading}
             />
 
             <Typography variant="body2" fontWeight="500" sx={{ mb: 1 }}>
-              Password
+              Create Password
             </Typography>
             <TextField
               fullWidth
@@ -105,25 +127,24 @@ function Login() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              sx={{ mb: 1 }}
+              sx={{ mb: 2.5 }}
               required
               disabled={loading}
             />
 
-            {/* Forgot Password */}
-            <Box sx={{ textAlign: 'right', mb: 3 }}>
-              <Typography 
-                variant="body2" 
-                onClick={() => navigate('/forgot-password')}
-                sx={{ 
-                  color: '#1976d2', 
-                  cursor: 'pointer',
-                  '&:hover': { textDecoration: 'underline' }
-                }}
-              >
-                Forgot password?
-              </Typography>
-            </Box>
+            <Typography variant="body2" fontWeight="500" sx={{ mb: 1 }}>
+              Confirm Password
+            </Typography>
+            <TextField
+              fullWidth
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="••••••••"
+              sx={{ mb: 3 }}
+              required
+              disabled={loading}
+            />
 
             <Button
               fullWidth
@@ -141,17 +162,17 @@ function Login() {
                 mb: 2
               }}
             >
-              {loading ? <CircularProgress size={24} color="inherit" /> : 'Sign In'}
+              {loading ? <CircularProgress size={24} color="inherit" /> : 'Create Account'}
             </Button>
 
-            {/* Create Password Link */}
+            {/* Back to Login */}
             <Box sx={{ textAlign: 'center' }}>
               <Typography variant="body2" color="text.secondary">
-                First time here?{' '}
+                Already have a password?{' '}
                 <Typography 
                   component="span"
                   variant="body2" 
-                  onClick={() => navigate('/register')}
+                  onClick={() => navigate('/login')}
                   sx={{ 
                     color: '#1976d2', 
                     cursor: 'pointer',
@@ -159,7 +180,7 @@ function Login() {
                     '&:hover': { textDecoration: 'underline' }
                   }}
                 >
-                  Create Password
+                  Sign In
                 </Typography>
               </Typography>
             </Box>
@@ -171,4 +192,4 @@ function Login() {
   )
 }
 
-export default Login
+export default Register

@@ -1,10 +1,15 @@
-import { Box, Grid, Card, CardContent, Typography, Button } from '@mui/material'
+import { Box, Grid, Card, CardContent, Typography, Button, Avatar } from '@mui/material'
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet'
 import PhoneIcon from '@mui/icons-material/Phone'
 import VoicemailIcon from '@mui/icons-material/Voicemail'
 import MessageIcon from '@mui/icons-material/Message'
+import BusinessIcon from '@mui/icons-material/Business'
+import EmailIcon from '@mui/icons-material/Email'
 
 function Dashboard() {
+  // Get user data from localStorage
+  const user = JSON.parse(localStorage.getItem('user') || '{}')
+  
   // Mock data
   const stats = [
     { title: 'Account Balance', value: '$125.50', icon: <AccountBalanceWalletIcon />, color: '#10b981' },
@@ -15,12 +20,51 @@ function Dashboard() {
 
   return (
     <Box>
-      <Typography variant="h4" gutterBottom>
-        Welcome Back!
-      </Typography>
-      <Typography color="text.secondary" sx={{ mb: 4 }}>
-        Here's what's happening with your account today.
-      </Typography>
+      {/* Welcome Header */}
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h4" fontWeight="700" gutterBottom>
+          Welcome Back, {user.company || user.email || 'User'}!
+        </Typography>
+        <Typography color="text.secondary">
+          Here's what's happening with your account today.
+        </Typography>
+      </Box>
+
+      {/* User Info Card */}
+      <Card sx={{ mb: 3, borderRadius: 3, backgroundColor: '#eff6ff', border: '1px solid #3b82f6' }}>
+        <CardContent>
+          <Grid container spacing={3} alignItems="center">
+            <Grid item>
+              <Avatar sx={{ 
+                width: 64, 
+                height: 64, 
+                backgroundColor: '#3b82f6',
+                fontSize: '1.5rem',
+                fontWeight: 700
+              }}>
+                {user.company ? user.company.charAt(0).toUpperCase() : user.email?.charAt(0).toUpperCase() || 'U'}
+              </Avatar>
+            </Grid>
+            <Grid item xs>
+              <Typography variant="h6" fontWeight="600">
+                {user.company || 'Company Name'}
+              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+                <EmailIcon sx={{ fontSize: 16, color: '#6b7280' }} />
+                <Typography variant="body2" color="text.secondary">
+                  {user.email || 'email@example.com'}
+                </Typography>
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+                <BusinessIcon sx={{ fontSize: 16, color: '#6b7280' }} />
+                <Typography variant="body2" color="text.secondary" sx={{ textTransform: 'capitalize' }}>
+                  Role: {user.role || 'Client'}
+                </Typography>
+              </Box>
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
 
       {/* Stats Cards */}
       <Grid container spacing={3}>
