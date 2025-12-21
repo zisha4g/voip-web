@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { 
   Box, 
   Typography, 
@@ -7,7 +7,7 @@ import {
   Button,
   List,
   ListItem,
-  ListItemAvatar,
+  ListItemButton,
   ListItemText,
   Avatar,
   IconButton,
@@ -16,107 +16,420 @@ import {
   Select,
   MenuItem,
   Paper,
-  Badge,
   InputAdornment,
   Chip,
-  Menu,
-  ListItemIcon,
-  Tooltip,
-  Divider
+  CircularProgress,
+  Alert
 } from '@mui/material'
 import SendIcon from '@mui/icons-material/Send'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
 import SearchIcon from '@mui/icons-material/Search'
 import PersonIcon from '@mui/icons-material/Person'
 import AddIcon from '@mui/icons-material/Add'
-import MoreVertIcon from '@mui/icons-material/MoreVert'
 import DeleteIcon from '@mui/icons-material/Delete'
-import ArchiveIcon from '@mui/icons-material/Archive'
-import PushPinIcon from '@mui/icons-material/PushPin'
-import InfoIcon from '@mui/icons-material/Info'
-import EmojiEmotionsIcon from '@mui/icons-material/EmojiEmotions'
-import DoneAllIcon from '@mui/icons-material/DoneAll'
-import DoneIcon from '@mui/icons-material/Done'
-import ScheduleIcon from '@mui/icons-material/Schedule'
+import ImageIcon from '@mui/icons-material/Image'
+import DeleteConfirmDialog from '../components/DeleteConfirmDialog'
+
+const API_BASE_URL = 'http://localhost:8000'
 
 function Messages() {
-  const [selectedConversation, setSelectedConversation] = useState(0)
+  const [conversations, setConversations] = useState([])
+  const [selectedContact, setSelectedContact] = useState(null)
+  const [isComposingNew, setIsComposingNew] = useState(false)
+  const [newContact, setNewContact] = useState('')
   const [messageText, setMessageText] = useState('')
-  const [selectedDID, setSelectedDID] = useState('8452441740')
-  const [anchorEl, setAnchorEl] = useState(null)
-  const [showInfo, setShowInfo] = useState(false)
+  const [selectedDID, setSelectedDID] = useState('')
+  const [availableDIDs, setAvailableDIDs] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [sending, setSending] = useState(false)
+  const [uploadingMedia, setUploadingMedia] = useState(false)
+  const [error, setError] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [imageFile, setImageFile] = useState(null)
+  const [mediaUrl, setMediaUrl] = useState('')
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState(null)
 
-  const getAvatarColor = (name) => {
+  const toErrorMessage = (value) => {
+    if (!value) return 'Something went wrong'
+    if (typeof value === 'string') return value
+    if (typeof value?.error === 'string') return value.error
+    if (typeof value?.message === 'string') return value.message
+    try {
+      return JSON.stringify(value)
+    } catch {
+      return 'Something went wrong'
+    }
+  }
+
+  useEffect(() => {
+    fetchAllMessages({ populateDids: true })
+  }, [])
+
+  useEffect(() => {
+    if (!selectedDID) return
+    fetchAllMessages({ did: selectedDID })
+  }, [selectedDID])
+
+  const requireToken = () => {
+    const token = localStorage.getItem('token')
+    if (!token) {
+      setError('Please log in to view messages')
+      return null
+    }
+    return token
+  }
+
+  const extractArrayFromResponse = (data, preferredKey) => {
+    if (Array.isArray(data)) return data
+    if (data?.success && data?.data) {
+      const container = data.data
+      if (preferredKey && Array.isArray(container?.[preferredKey])) return container[preferredKey]
+      if (Array.isArray(container?.sms)) return container.sms
+      if (Array.isArray(container?.mms)) return container.mms
+    }
+    if (Array.isArray(data?.data)) return data.data
+    return []
+  }
+
+  const fetchAllMessages = async ({ did, populateDids = false } = {}) => {
+    try {
+      const token = requireToken()
+      if (!token) {
+        setLoading(false)
+        return
+      }
+
+      const params = new URLSearchParams()
+      if (did) params.set('did', did)
+      params.set('limit', '200')
+      const query = params.toString()
+
+      const [smsResponse, mmsResponse] = await Promise.all([
+        fetch(`${API_BASE_URL}/api/sms${query ? `?${query}` : ''}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }),
+        fetch(`${API_BASE_URL}/api/sms/mms${query ? `?${query}` : ''}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+      ])
+
+      if (!smsResponse.ok) {
+        setError('Failed to load SMS messages')
+        return
+      }
+
+      const smsData = await smsResponse.json()
+      const mmsData = mmsResponse.ok ? await mmsResponse.json() : null
+
+      const smsArray = extractArrayFromResponse(smsData, 'sms').map(m => ({ ...m, kind: 'sms' }))
+      const mmsArray = mmsData ? extractArrayFromResponse(mmsData, 'mms').map(m => ({ ...m, kind: 'mms' })) : []
+
+      const combined = [...smsArray, ...mmsArray]
+
+      const grouped = groupMessagesByContact(combined)
+      setConversations(grouped)
+
+      if (populateDids) {
+        const dids = [...new Set(combined.map(msg => msg.did))].filter(Boolean)
+        setAvailableDIDs(dids)
+        if (dids.length > 0 && !selectedDID) {
+          setSelectedDID(dids[0])
+        }
+      }
+
+      setError('')
+    } catch (err) {
+      setError('Connection error. Make sure backend is running')
+      console.error('Fetch SMS error:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const groupMessagesByContact = (messages) => {
+    const groups = {}
+    
+    messages.forEach(msg => {
+      // type: "0" = outgoing (you sent), "1" = incoming (they sent)
+      const contact = msg.contact || msg.dst || msg.src
+      if (!contact) return
+      if (!groups[contact]) {
+        groups[contact] = {
+          contact,
+          messages: []
+        }
+      }
+      groups[contact].messages.push(msg)
+    })
+
+    return Object.values(groups).map(group => {
+      const sorted = group.messages.sort((a, b) => new Date(a.date) - new Date(b.date))
+      return {
+        contact: group.contact,
+        lastMessage: sorted[sorted.length - 1]?.message || '',
+        time: formatTime(sorted[sorted.length - 1]?.date),
+        messageCount: sorted.length,
+        messages: sorted
+      }
+    }).sort((a, b) => new Date(b.messages[b.messages.length - 1]?.date) - new Date(a.messages[a.messages.length - 1]?.date))
+  }
+
+  const formatTime = (dateStr) => {
+    if (!dateStr) return ''
+    const date = new Date(dateStr)
+    const now = new Date()
+    const diff = now - date
+    
+    if (diff < 86400000) {
+      return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+    } else if (diff < 604800000) {
+      return date.toLocaleDateString('en-US', { weekday: 'short' })
+    } else {
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    }
+  }
+
+  const formatPhoneNumber = (phone) => {
+    if (!phone) return ''
+    const cleaned = phone.replace(/\D/g, '')
+    if (cleaned.length === 10) {
+      return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6)}`
+    }
+    if (cleaned.length === 11) {
+      return `+${cleaned[0]} (${cleaned.slice(1, 4)}) ${cleaned.slice(4, 7)}-${cleaned.slice(7)}`
+    }
+    return phone
+  }
+
+  const handleSendMessage = async () => {
+    if (!messageText.trim() && !imageFile && !mediaUrl.trim()) return
+    const contactToSend = isComposingNew ? newContact.trim() : selectedContact
+    if (!contactToSend) {
+      setError('Please select or enter a contact number')
+      return
+    }
+    if (!selectedDID) {
+      setError('Please select a From Number')
+      return
+    }
+
+    setSending(true)
+    try {
+      const token = requireToken()
+      if (!token) return
+
+      const normalizedMediaUrl = mediaUrl.trim()
+      const wantsMms = Boolean(imageFile) || Boolean(normalizedMediaUrl)
+
+      if (wantsMms) {
+        let finalMediaUrl = normalizedMediaUrl
+
+        if (!finalMediaUrl && imageFile) {
+          setUploadingMedia(true)
+          try {
+            const formData = new FormData()
+            formData.append('file', imageFile)
+
+            const uploadResponse = await fetch(`${API_BASE_URL}/api/uploads`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`
+              },
+              body: formData
+            })
+
+            const uploadData = await uploadResponse.json().catch(() => null)
+            if (!uploadResponse.ok || !uploadData?.success) {
+              if (uploadResponse.status === 404) {
+                setError('Upload endpoint not found (404). Make sure your backend is updated and restarted, and that POST /api/uploads is mounted in server.js.')
+                return
+              }
+
+              const fallbackText = uploadData?.error
+                ? uploadData.error
+                : `Upload failed (${uploadResponse.status}).`
+              setError(toErrorMessage(fallbackText))
+              return
+            }
+
+            const returnedUrl = uploadData?.data?.url
+            if (!returnedUrl) {
+              setError('Upload succeeded but no URL was returned')
+              return
+            }
+
+            finalMediaUrl = returnedUrl.startsWith('/') ? `${API_BASE_URL}${returnedUrl}` : returnedUrl
+            setMediaUrl(finalMediaUrl)
+          } finally {
+            setUploadingMedia(false)
+          }
+        }
+
+        if (!finalMediaUrl) {
+          setError('Please attach an image or paste an image URL')
+          return
+        }
+
+        const response = await fetch(`${API_BASE_URL}/api/sms/mms`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            did: selectedDID,
+            dst: contactToSend,
+            message: messageText,
+            media1: finalMediaUrl
+          })
+        })
+
+        if (response.ok) {
+          setMessageText('')
+          setImageFile(null)
+          setMediaUrl('')
+          setIsComposingNew(false)
+          setNewContact('')
+          setSelectedContact(contactToSend)
+          fetchAllMessages({ did: selectedDID })
+        } else {
+          const data = await response.json().catch(() => null)
+          setError(toErrorMessage(data?.error || data || 'Failed to send MMS'))
+        }
+        return
+      }
+
+      {
+        const response = await fetch(`${API_BASE_URL}/api/sms`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            did: selectedDID,
+            dst: contactToSend,
+            message: messageText
+          })
+        })
+
+        if (response.ok) {
+          setMessageText('')
+          setIsComposingNew(false)
+          setNewContact('')
+          setSelectedContact(contactToSend)
+          fetchAllMessages({ did: selectedDID })
+        } else {
+          const data = await response.json().catch(() => null)
+          setError(toErrorMessage(data?.error || data || 'Failed to send SMS'))
+        }
+      }
+    } catch (err) {
+      setError(toErrorMessage(err))
+      console.error('Send message error:', err)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const handleDeleteMessage = (messageId) => {
+    setDeleteTarget({ kind: 'message', id: messageId })
+    setDeleteDialogOpen(true)
+  }
+
+  const handleDeleteConversation = () => {
+    if (!selectedContact) return
+    setDeleteTarget({ kind: 'conversation', contact: selectedContact })
+    setDeleteDialogOpen(true)
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+
+    try {
+      const token = requireToken()
+      if (!token) return
+
+      if (deleteTarget.kind === 'message') {
+        const response = await fetch(`${API_BASE_URL}/api/sms/${deleteTarget.id}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+
+        if (!response.ok) {
+          const data = await response.json().catch(() => null)
+          setError(toErrorMessage(data?.error || data || 'Failed to delete message'))
+          return
+        }
+      }
+
+      if (deleteTarget.kind === 'conversation') {
+        const convo = conversations.find(c => c.contact === deleteTarget.contact)
+        const ids = (convo?.messages || []).map(m => m.id).filter(Boolean)
+        await Promise.allSettled(
+          ids.map(id =>
+            fetch(`${API_BASE_URL}/api/sms/${id}`, {
+              method: 'DELETE',
+              headers: { 'Authorization': `Bearer ${token}` }
+            })
+          )
+        )
+        setSelectedContact(null)
+      }
+
+      setDeleteDialogOpen(false)
+      setDeleteTarget(null)
+      fetchAllMessages({ did: selectedDID })
+    } catch (err) {
+      setError(toErrorMessage(err))
+      console.error('Delete message error:', err)
+    }
+  }
+
+  const cancelDelete = () => {
+    setDeleteDialogOpen(false)
+    setDeleteTarget(null)
+  }
+
+  const handleImageSelect = (e) => {
+    const file = e.target.files?.[0]
+    if (file && file.type.startsWith('image/')) {
+      setImageFile(file)
+      // Keep mediaUrl if user already pasted one; otherwise we'll upload on send.
+    }
+  }
+
+  const filteredConversations = conversations
+    .filter(conv => {
+      // Keep it simple: apply search filter only
+      return conv.contact?.includes(searchQuery) || 
+        conv.lastMessage?.toLowerCase().includes(searchQuery.toLowerCase())
+    })
+
+  const currentConversation = conversations.find(c => c.contact === selectedContact)
+  const currentMessages = currentConversation?.messages || []
+
+  const getAvatarColor = (contact) => {
     const colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4']
-    return colors[name.length % colors.length]
+    const hash = contact?.split('').reduce((acc, char) => char.charCodeAt(0) + acc, 0) || 0
+    return colors[hash % colors.length]
   }
-
-  const conversations = [
-    { id: 1, number: '9292221696', name: 'John Doe', lastMessage: 'Hi when are you open', time: 'Dec 6', unread: 2, pinned: true, status: 'delivered' },
-    { id: 2, number: '8888781488', name: 'Sarah Smith', lastMessage: 'Your account has been updated', time: 'Dec 7', unread: 0, pinned: false, status: 'read' },
-    { id: 3, number: '3478610637', name: 'Mike Johnson', lastMessage: 'Package delivered', time: 'Dec 9', unread: 1, pinned: false, status: 'sent' },
-    { id: 4, number: '5162521697', name: 'Lisa Brown', lastMessage: 'Just a test message here', time: '13:15', unread: 0, pinned: false, status: 'read' },
-    { id: 5, number: '2125551234', name: 'David Wilson', lastMessage: 'Thanks for the update!', time: 'Yesterday', unread: 0, pinned: false, status: 'read' },
-  ]
-
-  const currentMessages = [
-    { id: 1, text: 'Hi when are you open', sender: 'them', time: '10:30 AM', status: 'read', date: 'Today' },
-    { id: 2, text: 'Hello! We are open Monday-Friday 9AM-6PM. How can I help you today?', sender: 'me', time: '10:35 AM', status: 'read' },
-    { id: 3, text: 'Great, thank you!', sender: 'them', time: '10:36 AM', status: 'read' },
-    { id: 4, text: 'Do you offer same-day delivery?', sender: 'them', time: '10:37 AM', status: 'read' },
-    { id: 5, text: 'Yes, we do! Orders placed before 2 PM are eligible for same-day delivery.', sender: 'me', time: '10:38 AM', status: 'delivered' },
-  ]
-
-  const handleSendMessage = () => {
-    if (messageText.trim()) {
-      // Send message logic here
-      setMessageText('')
-    }
-  }
-
-  const handleMenuClick = (event) => {
-    setAnchorEl(event.currentTarget)
-  }
-
-  const handleMenuClose = () => {
-    setAnchorEl(null)
-  }
-
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case 'sent':
-        return <DoneIcon sx={{ fontSize: 14 }} />
-      case 'delivered':
-        return <DoneAllIcon sx={{ fontSize: 14 }} />
-      case 'read':
-        return <DoneAllIcon sx={{ fontSize: 14, color: '#3b82f6' }} />
-      default:
-        return <ScheduleIcon sx={{ fontSize: 14 }} />
-    }
-  }
-
-  const sortedConversations = [...conversations].sort((a, b) => {
-    if (a.pinned && !b.pinned) return -1
-    if (!a.pinned && b.pinned) return 1
-    return 0
-  })
 
   return (
-    <Box>
-      {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography variant="h4" fontWeight="700" gutterBottom>
-            Messages
-          </Typography>
-          <Typography color="text.secondary">
-            Send and receive SMS/MMS messages
-          </Typography>
-        </Box>
-        <Button 
-          variant="contained" 
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 140px)' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', mb: 2 }}>
+        <Button
+          variant="contained"
           startIcon={<AddIcon />}
-          sx={{ 
+          onClick={() => {
+            setIsComposingNew(true)
+            setNewContact('')
+            setSelectedContact(null)
+            setMessageText('')
+            setImageFile(null)
+          }}
+          sx={{
             backgroundColor: '#3b82f6',
             '&:hover': { backgroundColor: '#2563eb' },
             borderRadius: 3,
@@ -127,434 +440,308 @@ function Messages() {
         </Button>
       </Box>
 
-      <Card sx={{ borderRadius: 3, height: 'calc(100vh - 250px)', display: 'flex', overflow: 'hidden' }}>
-        {/* Left Sidebar - Conversations List */}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+          {toErrorMessage(error)}
+        </Alert>
+      )}
+
+      <Card sx={{ borderRadius: 3, flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
         <Box sx={{ 
-          width: 380, 
+          width: 360, 
           borderRight: '1px solid #e5e7eb',
           display: 'flex',
           flexDirection: 'column',
           backgroundColor: '#fafafa'
         }}>
-          {/* DID Selector & Search */}
           <Box sx={{ p: 2.5, backgroundColor: 'white', borderBottom: '1px solid #e5e7eb' }}>
-            <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-              <InputLabel>From Number</InputLabel>
-              <Select 
-                value={selectedDID} 
-                onChange={(e) => setSelectedDID(e.target.value)}
+            {availableDIDs.length > 0 ? (
+              <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+                <InputLabel>From Number</InputLabel>
+                <Select 
+                  value={selectedDID} 
+                  onChange={(e) => setSelectedDID(e.target.value)}
+                  label="From Number"
+                  sx={{ borderRadius: 2 }}
+                >
+                  {availableDIDs.map(did => (
+                    <MenuItem key={did} value={did}>
+                      {formatPhoneNumber(did)}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            ) : (
+              <TextField
+                fullWidth
+                size="small"
                 label="From Number"
-                sx={{ borderRadius: 2 }}
-              >
-                <MenuItem value="8452441740">
-                  <Box>
-                    <Typography variant="body2" fontWeight="600">CLINTONDL, NY</Typography>
-                    <Typography variant="caption" color="text.secondary">(845) 244-1740</Typography>
-                  </Box>
-                </MenuItem>
-                <MenuItem value="9175551234">
-                  <Box>
-                    <Typography variant="body2" fontWeight="600">NEW YORK, NY</Typography>
-                    <Typography variant="caption" color="text.secondary">(917) 555-1234</Typography>
-                  </Box>
-                </MenuItem>
-              </Select>
-            </FormControl>
+                value={selectedDID}
+                onChange={(e) => setSelectedDID(e.target.value)}
+                placeholder="Enter your DID"
+                sx={{ mb: 2 }}
+                InputProps={{ sx: { borderRadius: 2 } }}
+              />
+            )}
 
             <TextField
               fullWidth
               size="small"
-              placeholder="Search conversations..."
-              sx={{ 
-                '& .MuiOutlinedInput-root': {
-                  borderRadius: 3,
-                  backgroundColor: '#f9fafb'
-                }
-              }}
+              placeholder="Search messages..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
                     <SearchIcon sx={{ color: '#9ca3af' }} />
                   </InputAdornment>
                 ),
+                sx: { borderRadius: 2 }
               }}
             />
           </Box>
 
-          {/* Conversations List */}
-          <List sx={{ flexGrow: 1, overflow: 'auto', p: 1 }}>
-            {sortedConversations.map((conv, index) => (
-              <ListItem
-                key={conv.id}
-                button
-                selected={selectedConversation === index}
-                onClick={() => setSelectedConversation(index)}
-                sx={{
-                  borderRadius: 2,
-                  mb: 0.5,
-                  backgroundColor: selectedConversation === index ? '#eff6ff' : 'transparent',
-                  '&:hover': {
-                    backgroundColor: selectedConversation === index ? '#eff6ff' : '#f3f4f6'
-                  },
-                  py: 1.5,
-                  px: 1.5,
-                  border: selectedConversation === index ? '2px solid #3b82f6' : '2px solid transparent'
-                }}
-              >
-                <ListItemAvatar>
-                  <Badge 
-                    badgeContent={conv.unread} 
-                    color="error"
-                    overlap="circular"
+          <List sx={{ flex: 1, overflow: 'auto', p: 0 }}>
+            {loading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress />
+              </Box>
+            ) : filteredConversations.length === 0 ? (
+              <Typography color="text.secondary" sx={{ p: 3, textAlign: 'center' }}>
+                No messages
+              </Typography>
+            ) : (
+              filteredConversations.map((conv) => (
+                <ListItem key={conv.contact} disablePadding sx={{ borderBottom: '1px solid #e5e7eb' }}>
+                  <ListItemButton
+                    selected={selectedContact === conv.contact}
+                    onClick={() => {
+                      setSelectedContact(conv.contact)
+                      setIsComposingNew(false)
+                      setNewContact('')
+                    }}
+                    sx={{
+                      backgroundColor: selectedContact === conv.contact ? '#eff6ff' : 'white',
+                      '&:hover': { backgroundColor: '#f3f4f6' },
+                      py: 2
+                    }}
                   >
-                    <Avatar 
-                      sx={{ 
-                        backgroundColor: getAvatarColor(conv.name),
-                        width: 48,
-                        height: 48,
-                        fontWeight: 600
-                      }}
-                    >
-                      {conv.name.charAt(0)}
+                    <Avatar sx={{ bgcolor: getAvatarColor(conv.contact), mr: 2 }}>
+                      <PersonIcon />
                     </Avatar>
-                  </Badge>
-                </ListItemAvatar>
-                <ListItemText
-                  sx={{ ml: 1 }}
-                  primary={
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        {conv.pinned && <PushPinIcon sx={{ fontSize: 14, color: '#3b82f6' }} />}
-                        <Typography fontWeight="700" variant="body1">
-                          {conv.name}
-                        </Typography>
-                      </Box>
-                      <Typography variant="caption" color="text.secondary" fontWeight="500">
-                        {conv.time}
-                      </Typography>
-                    </Box>
-                  }
-                  secondary={
-                    <Box>
-                      <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.3 }}>
-                        {conv.number}
-                      </Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        {getStatusIcon(conv.status)}
+                    <ListItemText
+                      primary={
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                          <Typography fontWeight="600">
+                            {formatPhoneNumber(conv.contact)}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {conv.time}
+                          </Typography>
+                        </Box>
+                      }
+                      secondary={
                         <Typography 
                           variant="body2" 
                           color="text.secondary"
                           sx={{ 
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            fontWeight: conv.unread > 0 ? 600 : 400
+                            whiteSpace: 'nowrap'
                           }}
                         >
                           {conv.lastMessage}
                         </Typography>
-                      </Box>
-                    </Box>
-                  }
-                />
-              </ListItem>
-            ))}
+                      }
+                    />
+                  </ListItemButton>
+                </ListItem>
+              ))
+            )}
           </List>
         </Box>
 
-        {/* Right Panel - Chat Area */}
-        <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', backgroundColor: 'white' }}>
-          {/* Chat Header */}
-          <Box sx={{ 
-            p: 2.5, 
-            borderBottom: '1px solid #e5e7eb',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            backgroundColor: 'white'
-          }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Avatar sx={{ 
-                backgroundColor: getAvatarColor(sortedConversations[selectedConversation].name),
-                width: 44,
-                height: 44,
-                fontWeight: 600
+        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: 'white' }}>
+          {(selectedContact || isComposingNew) ? (
+            <>
+              <Box sx={{ 
+                p: 2.5, 
+                borderBottom: '1px solid #e5e7eb',
+                backgroundColor: 'white',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
               }}>
-                {sortedConversations[selectedConversation].name.charAt(0)}
-              </Avatar>
-              <Box>
-                <Typography fontWeight="700" variant="h6">
-                  {sortedConversations[selectedConversation].name}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {sortedConversations[selectedConversation].number}
-                </Typography>
-              </Box>
-            </Box>
-            
-            <Box>
-              <Tooltip title="Info">
-                <IconButton onClick={() => setShowInfo(!showInfo)}>
-                  <InfoIcon />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="More">
-                <IconButton onClick={handleMenuClick}>
-                  <MoreVertIcon />
-                </IconButton>
-              </Tooltip>
-            </Box>
-
-            <Menu
-              anchorEl={anchorEl}
-              open={Boolean(anchorEl)}
-              onClose={handleMenuClose}
-            >
-              <MenuItem onClick={handleMenuClose}>
-                <ListItemIcon>
-                  <PushPinIcon fontSize="small" />
-                </ListItemIcon>
-                Pin Conversation
-              </MenuItem>
-              <MenuItem onClick={handleMenuClose}>
-                <ListItemIcon>
-                  <ArchiveIcon fontSize="small" />
-                </ListItemIcon>
-                Archive
-              </MenuItem>
-              <Divider />
-              <MenuItem onClick={handleMenuClose} sx={{ color: '#ef4444' }}>
-                <ListItemIcon>
-                  <DeleteIcon fontSize="small" sx={{ color: '#ef4444' }} />
-                </ListItemIcon>
-                Delete Conversation
-              </MenuItem>
-            </Menu>
-          </Box>
-
-          {/* Messages Area */}
-          <Box sx={{ 
-            flexGrow: 1, 
-            overflow: 'auto', 
-            p: 3,
-            backgroundColor: '#f9fafb',
-            backgroundImage: 'radial-gradient(circle at 1px 1px, #e5e7eb 1px, transparent 0)',
-            backgroundSize: '40px 40px'
-          }}>
-            {/* Date Separator */}
-            <Box sx={{ textAlign: 'center', my: 3 }}>
-              <Chip label="Today" size="small" sx={{ backgroundColor: 'white', fontWeight: 600 }} />
-            </Box>
-
-            {currentMessages.map((msg) => (
-              <Box 
-                key={msg.id}
-                sx={{
-                  display: 'flex',
-                  justifyContent: msg.sender === 'me' ? 'flex-end' : 'flex-start',
-                  mb: 1.5,
-                  alignItems: 'flex-end',
-                  gap: 1
-                }}
-              >
-                {msg.sender === 'them' && (
-                  <Avatar 
-                    sx={{ 
-                      width: 32, 
-                      height: 32,
-                      backgroundColor: getAvatarColor(sortedConversations[selectedConversation].name),
-                      fontSize: '0.875rem',
-                      fontWeight: 600
-                    }}
-                  >
-                    {sortedConversations[selectedConversation].name.charAt(0)}
+                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Avatar sx={{ bgcolor: getAvatarColor(selectedContact || newContact), mr: 2 }}>
+                    <PersonIcon />
                   </Avatar>
-                )}
-                
-                <Paper
-                  sx={{
-                    px: 2.5,
-                    py: 1.5,
-                    maxWidth: '65%',
-                    backgroundColor: msg.sender === 'me' ? '#3b82f6' : 'white',
-                    color: msg.sender === 'me' ? 'white' : '#1f2937',
-                    borderRadius: msg.sender === 'me' ? '20px 20px 4px 20px' : '20px 20px 20px 4px',
-                    boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
-                  }}
-                  elevation={0}
-                >
-                  <Typography variant="body1" sx={{ lineHeight: 1.5 }}>
-                    {msg.text}
-                  </Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, justifyContent: 'flex-end' }}>
-                    <Typography 
-                      variant="caption" 
-                      sx={{ 
-                        opacity: 0.8,
-                        fontSize: '0.7rem'
-                      }}
-                    >
-                      {msg.time}
-                    </Typography>
-                    {msg.sender === 'me' && (
-                      <Box sx={{ display: 'flex', opacity: 0.8 }}>
-                        {getStatusIcon(msg.status)}
-                      </Box>
+                  <Box>
+                    {isComposingNew ? (
+                      <TextField
+                        size="small"
+                        value={newContact}
+                        onChange={(e) => setNewContact(e.target.value)}
+                        placeholder="Enter phone number"
+                        sx={{ width: 260 }}
+                      />
+                    ) : (
+                      <>
+                        <Typography fontWeight="600">
+                          {formatPhoneNumber(selectedContact)}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {currentMessages.length} messages
+                        </Typography>
+                      </>
                     )}
                   </Box>
-                </Paper>
-              </Box>
-            ))}
-
-            {/* Typing Indicator */}
-            {/* <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 2 }}>
-              <Avatar sx={{ width: 32, height: 32, backgroundColor: '#6b7280' }}>J</Avatar>
-              <Paper sx={{ px: 2.5, py: 1.5, borderRadius: '20px 20px 20px 4px' }}>
-                <Box sx={{ display: 'flex', gap: 0.5 }}>
-                  <Box className="typing-dot"></Box>
-                  <Box className="typing-dot"></Box>
-                  <Box className="typing-dot"></Box>
                 </Box>
-              </Paper>
-            </Box> */}
-          </Box>
 
-          {/* Message Input */}
-          <Box sx={{ 
-            p: 2.5, 
-            borderTop: '1px solid #e5e7eb',
-            backgroundColor: 'white'
-          }}>
-            <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-end' }}>
-              <Tooltip title="Attach file">
-                <IconButton 
-                  size="large"
-                  sx={{ 
-                    color: '#6b7280',
-                    '&:hover': { 
-                      backgroundColor: '#f3f4f6',
-                      color: '#3b82f6' 
-                    }
-                  }}
-                >
-                  <AttachFileIcon />
-                </IconButton>
-              </Tooltip>
+                {!isComposingNew && (
+                  <IconButton onClick={handleDeleteConversation} sx={{ color: '#ef4444' }}>
+                    <DeleteIcon />
+                  </IconButton>
+                )}
+              </Box>
 
-              <Tooltip title="Emoji">
-                <IconButton 
-                  size="large"
-                  sx={{ 
-                    color: '#6b7280',
-                    '&:hover': { 
-                      backgroundColor: '#f3f4f6',
-                      color: '#3b82f6' 
-                    }
-                  }}
-                >
-                  <EmojiEmotionsIcon />
-                </IconButton>
-              </Tooltip>
-              
-              <TextField
-                fullWidth
-                multiline
-                maxRows={4}
-                placeholder="Type your message..."
-                value={messageText}
-                onChange={(e) => setMessageText(e.target.value)}
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault()
-                    handleSendMessage()
-                  }
-                }}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    borderRadius: '24px',
-                    backgroundColor: '#f9fafb',
-                    fontSize: '0.95rem'
-                  }
-                }}
-              />
-              
-              <IconButton 
-                onClick={handleSendMessage}
-                disabled={!messageText.trim()}
-                size="large"
-                sx={{ 
-                  backgroundColor: '#3b82f6',
-                  color: 'white',
-                  width: 48,
-                  height: 48,
-                  '&:hover': { 
-                    backgroundColor: '#2563eb'
-                  },
-                  '&:disabled': {
-                    backgroundColor: '#e5e7eb',
-                    color: '#9ca3af'
-                  }
-                }}
-              >
-                <SendIcon />
-              </IconButton>
+              <Box sx={{ flex: 1, overflow: 'auto', p: 3, backgroundColor: '#f9fafb' }}>
+                {currentMessages.map((msg, index) => {
+                  // type: "0" = you sent it, "1" = they sent it
+                  const isFromMe = msg.type === "0"
+                  return (
+                    <Box
+                      key={msg.id || index}
+                      sx={{
+                        display: 'flex',
+                        justifyContent: isFromMe ? 'flex-end' : 'flex-start',
+                        mb: 2
+                      }}
+                    >
+                      <Paper
+                        sx={{
+                          maxWidth: '70%',
+                          p: 1.5,
+                          backgroundColor: isFromMe ? '#3b82f6' : 'white',
+                          color: isFromMe ? 'white' : 'text.primary',
+                          borderRadius: 2,
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          {msg.kind === 'mms' && (
+                            <Chip size="small" label="MMS" sx={{ height: 18, fontSize: 10 }} />
+                          )}
+                          <Typography variant="body2">{msg.message || (msg.kind === 'mms' ? '[Media]' : '')}</Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 0.5 }}>
+                          <Typography variant="caption" sx={{ opacity: 0.8, fontSize: '0.7rem' }}>
+                            {formatTime(msg.date)}
+                          </Typography>
+                          <IconButton 
+                            size="small" 
+                            onClick={() => handleDeleteMessage(msg.id)}
+                            sx={{
+                              ml: 1,
+                              color: isFromMe ? 'white' : '#6b7280',
+                              opacity: 0.8
+                            }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      </Paper>
+                    </Box>
+                  )
+                })}
+              </Box>
+
+              <Box sx={{ p: 2.5, borderTop: '1px solid #e5e7eb', backgroundColor: 'white' }}>
+                {imageFile && (
+                  <Chip
+                    icon={<ImageIcon />}
+                    label={uploadingMedia ? `Uploading: ${imageFile.name}` : imageFile.name}
+                    onDelete={() => setImageFile(null)}
+                    sx={{ mb: 1 }}
+                  />
+                )}
+
+                {(imageFile || mediaUrl) && (
+                  <TextField
+                    fullWidth
+                    size="small"
+                    label="Image URL (public https://...)"
+                    value={mediaUrl}
+                    onChange={(e) => setMediaUrl(e.target.value)}
+                    placeholder="https://..."
+                    sx={{ mb: 1 }}
+                  />
+                )}
+
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    id="image-upload"
+                    onChange={handleImageSelect}
+                  />
+                  <label htmlFor="image-upload">
+                    <IconButton component="span" sx={{ color: '#6b7280' }}>
+                      <AttachFileIcon />
+                    </IconButton>
+                  </label>
+
+                  <TextField
+                    fullWidth
+                    placeholder="Type a message..."
+                    value={messageText}
+                    onChange={(e) => setMessageText(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
+                    multiline
+                    maxRows={3}
+                    size="small"
+                    sx={{ borderRadius: 2 }}
+                  />
+
+                  <IconButton 
+                    onClick={handleSendMessage}
+                    disabled={(!messageText.trim() && !imageFile && !mediaUrl.trim()) || sending || uploadingMedia}
+                    sx={{ 
+                      backgroundColor: '#3b82f6',
+                      color: 'white',
+                      '&:hover': { backgroundColor: '#2563eb' },
+                      '&:disabled': { backgroundColor: '#e5e7eb' }
+                    }}
+                  >
+                    {(sending || uploadingMedia) ? <CircularProgress size={24} color="inherit" /> : <SendIcon />}
+                  </IconButton>
+                </Box>
+              </Box>
+            </>
+          ) : (
+            <Box sx={{ 
+              flex: 1, 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              color: 'text.secondary'
+            }}>
+              <Typography>Select a conversation to start messaging</Typography>
             </Box>
-            
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1, px: 1 }}>
-              <Typography variant="caption" color="text.secondary">
-                Press Enter to send, Shift+Enter for new line
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {messageText.length}/2048
-              </Typography>
-            </Box>
-          </Box>
+          )}
         </Box>
-
-        {/* Right Info Panel (Optional) */}
-        {showInfo && (
-          <Box sx={{ 
-            width: 300, 
-            borderLeft: '1px solid #e5e7eb',
-            p: 3,
-            backgroundColor: '#fafafa'
-          }}>
-            <Typography variant="h6" fontWeight="700" gutterBottom>
-              Contact Info
-            </Typography>
-            <Box sx={{ textAlign: 'center', my: 3 }}>
-              <Avatar sx={{ 
-                width: 80, 
-                height: 80, 
-                margin: '0 auto',
-                backgroundColor: getAvatarColor(sortedConversations[selectedConversation].name),
-                fontSize: '2rem',
-                fontWeight: 600
-              }}>
-                {sortedConversations[selectedConversation].name.charAt(0)}
-              </Avatar>
-              <Typography variant="h6" fontWeight="700" sx={{ mt: 2 }}>
-                {sortedConversations[selectedConversation].name}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {sortedConversations[selectedConversation].number}
-              </Typography>
-            </Box>
-            
-            <Divider sx={{ my: 2 }} />
-            
-            <Button fullWidth variant="outlined" sx={{ mb: 1, borderRadius: 2 }}>
-              Call
-            </Button>
-            <Button fullWidth variant="outlined" sx={{ mb: 1, borderRadius: 2 }}>
-              Video Call
-            </Button>
-            <Button fullWidth variant="outlined" sx={{ borderRadius: 2 }}>
-              View Profile
-            </Button>
-          </Box>
-        )}
       </Card>
+
+      <DeleteConfirmDialog
+        open={deleteDialogOpen}
+        onClose={cancelDelete}
+        onConfirm={confirmDelete}
+        title={deleteTarget?.kind === 'conversation' ? 'Delete Conversation' : 'Delete Message'}
+        message={deleteTarget?.kind === 'conversation'
+          ? 'Delete this entire conversation? This will remove all messages in it.'
+          : 'Are you sure you want to delete this message? This action cannot be undone.'}
+      />
     </Box>
   )
 }

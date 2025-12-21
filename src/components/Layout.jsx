@@ -30,11 +30,13 @@ import GroupIcon from '@mui/icons-material/Group'
 import ScheduleIcon from '@mui/icons-material/Schedule'
 
 const drawerWidth = 260
+const collapsedDrawerWidth = 76
 
 function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
   const [anchorEl, setAnchorEl] = useState(null)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   
   // Get user data from localStorage
   const user = JSON.parse(localStorage.getItem('user') || '{}')
@@ -78,15 +80,21 @@ function Layout() {
     navigate(path)
   }
 
+  const toggleSidebar = () => {
+    setSidebarCollapsed(prev => !prev)
+  }
+
+  const currentDrawerWidth = sidebarCollapsed ? collapsedDrawerWidth : drawerWidth
+
   return (
     <Box sx={{ display: 'flex' }}>
       {/* Sidebar */}
       <Drawer
         variant="permanent"
         sx={{
-          width: drawerWidth,
+          width: currentDrawerWidth,
           '& .MuiDrawer-paper': {
-            width: drawerWidth,
+            width: currentDrawerWidth,
             boxSizing: 'border-box',
             backgroundColor: '#ffffff',
             borderRight: '1px solid #e5e7eb',
@@ -100,9 +108,14 @@ function Layout() {
           borderBottom: '1px solid #e5e7eb',
           display: 'flex',
           alignItems: 'center',
-          gap: 1
+          gap: 1,
+          cursor: 'pointer',
+          justifyContent: sidebarCollapsed ? 'center' : 'flex-start'
         }}>
-          <Box sx={{ 
+          <Box
+            onClick={toggleSidebar}
+            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            sx={{ 
             backgroundColor: '#3b82f6', 
             borderRadius: '8px', 
             p: 1,
@@ -110,13 +123,15 @@ function Layout() {
           }}>
             <PhoneIcon sx={{ color: 'white', fontSize: 24 }} />
           </Box>
-          <Typography variant="h6" fontWeight="700" color="#1f2937">
-            VoIP Portal
-          </Typography>
+          {!sidebarCollapsed && (
+            <Typography variant="h6" fontWeight="700" color="#1f2937">
+              VoIP Portal
+            </Typography>
+          )}
         </Box>
 
         {/* Menu Items */}
-        <List sx={{ mt: 2, px: 2, flexGrow: 1, overflow: 'auto' }}>
+        <List sx={{ mt: 2, px: sidebarCollapsed ? 1 : 2, flexGrow: 1, overflow: 'auto' }}>
           {menuItems.map((item) => (
             <ListItem key={item.path} disablePadding sx={{ mb: 0.5 }}>
               <ListItemButton
@@ -137,27 +152,30 @@ function Layout() {
                   py: 1.2,
                 }}
               >
-                <ListItemIcon sx={{ color: '#6b7280', minWidth: 40 }}>
+                <ListItemIcon sx={{ color: '#6b7280', minWidth: sidebarCollapsed ? 0 : 40, justifyContent: 'center' }}>
                   {item.icon}
                 </ListItemIcon>
-                <ListItemText 
-                  primary={item.text}
-                  primaryTypographyProps={{
-                    fontSize: '0.95rem',
-                    fontWeight: location.pathname === item.path ? 600 : 500
-                  }}
-                />
+                {!sidebarCollapsed && (
+                  <ListItemText 
+                    primary={item.text}
+                    primaryTypographyProps={{
+                      fontSize: '0.95rem',
+                      fontWeight: location.pathname === item.path ? 600 : 500
+                    }}
+                  />
+                )}
               </ListItemButton>
             </ListItem>
           ))}
         </List>
 
         {/* Logout */}
-        <Box sx={{ p: 2, borderTop: '1px solid #e5e7eb' }}>
+        <Box sx={{ p: sidebarCollapsed ? 1 : 2, borderTop: '1px solid #e5e7eb' }}>
           <ListItemButton 
             onClick={handleLogout}
             sx={{
               borderRadius: '8px',
+              justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
               '&:hover': {
                 backgroundColor: '#fef2f2',
                 color: '#dc2626',
@@ -167,13 +185,15 @@ function Layout() {
               },
             }}
           >
-            <ListItemIcon sx={{ color: '#6b7280', minWidth: 40 }}>
+            <ListItemIcon sx={{ color: '#6b7280', minWidth: sidebarCollapsed ? 0 : 40, justifyContent: 'center' }}>
               <LogoutIcon />
             </ListItemIcon>
-            <ListItemText 
-              primary="Logout"
-              primaryTypographyProps={{ fontWeight: 500 }}
-            />
+            {!sidebarCollapsed && (
+              <ListItemText 
+                primary="Logout"
+                primaryTypographyProps={{ fontWeight: 500 }}
+              />
+            )}
           </ListItemButton>
         </Box>
       </Drawer>
