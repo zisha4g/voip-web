@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Box, Typography, Card, CardContent, List, Select, MenuItem, FormControl, InputLabel, CircularProgress, Alert, Grid } from '@mui/material'
 import DeleteConfirmDialog from '../components/DeleteConfirmDialog'
 import AudioPlayer from '../components/AudioPlayer'
 import VoicemailItem from '../components/VoicemailItem'
 import StatsCard from '../components/StatsCard'
 
+const API_BASE_URL = 'http://localhost:8000'
+
 function Voicemail() {
+  const navigate = useNavigate()
   const [mailboxes, setMailboxes] = useState([])
   const [selectedMailbox, setSelectedMailbox] = useState('')
   const [messages, setMessages] = useState([])
@@ -36,10 +40,25 @@ function Voicemail() {
   const fetchMailboxes = async () => {
     try {
       const token = localStorage.getItem('token')
+      if (!token) {
+        setError('Please log in to view voicemail')
+        setLoading(false)
+        navigate('/login')
+        return
+      }
       
-      const response = await fetch('http://localhost:8000/api/voicemail', {
+      const response = await fetch(`${API_BASE_URL}/api/voicemail`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
+
+      if (response.status === 401) {
+        setError('Session expired. Please log in again.')
+        localStorage.removeItem('isAuthenticated')
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+        navigate('/login')
+        return
+      }
 
       if (response.ok) {
         const data = await response.json()
@@ -69,11 +88,25 @@ function Voicemail() {
     setLoading(true)
     try {
       const token = localStorage.getItem('token')
-      const url = `http://localhost:8000/api/voicemail/messages?mailbox=${selectedMailbox}&folder=${folder}`
+      if (!token) {
+        setError('Please log in to view voicemail')
+        navigate('/login')
+        return
+      }
+      const url = `${API_BASE_URL}/api/voicemail/messages?mailbox=${selectedMailbox}&folder=${folder}`
       
       const response = await fetch(url, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
+
+      if (response.status === 401) {
+        setError('Session expired. Please log in again.')
+        localStorage.removeItem('isAuthenticated')
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+        navigate('/login')
+        return
+      }
 
       if (response.ok) {
         const data = await response.json()
@@ -124,10 +157,24 @@ function Voicemail() {
 
     try {
       const token = localStorage.getItem('token')
+      if (!token) {
+        setError('Please log in to play voicemail')
+        navigate('/login')
+        return
+      }
       const response = await fetch(
-        `http://localhost:8000/api/voicemail/messages/${messageId}/file?mailbox=${selectedMailbox}&folder=${folder}`, {
+        `${API_BASE_URL}/api/voicemail/messages/${messageId}/file?mailbox=${selectedMailbox}&folder=${folder}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
+
+      if (response.status === 401) {
+        setError('Session expired. Please log in again.')
+        localStorage.removeItem('isAuthenticated')
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+        navigate('/login')
+        return
+      }
 
       if (response.ok) {
         const blob = await response.blob()
@@ -216,10 +263,24 @@ function Voicemail() {
   const handleDownload = async (messageId, folder, callerId) => {
     try {
       const token = localStorage.getItem('token')
+      if (!token) {
+        setError('Please log in to download voicemail')
+        navigate('/login')
+        return
+      }
       const response = await fetch(
-        `http://localhost:8000/api/voicemail/messages/${messageId}/file?mailbox=${selectedMailbox}&folder=${folder}`,
+        `${API_BASE_URL}/api/voicemail/messages/${messageId}/file?mailbox=${selectedMailbox}&folder=${folder}`,
         { headers: { 'Authorization': `Bearer ${token}` } }
       )
+
+      if (response.status === 401) {
+        setError('Session expired. Please log in again.')
+        localStorage.removeItem('isAuthenticated')
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+        navigate('/login')
+        return
+      }
 
       if (response.ok) {
         const blob = await response.blob()
@@ -250,13 +311,27 @@ function Voicemail() {
 
     try {
       const token = localStorage.getItem('token')
+      if (!token) {
+        setError('Please log in to delete voicemail')
+        navigate('/login')
+        return
+      }
       const response = await fetch(
-        `http://localhost:8000/api/voicemail/messages/${messageToDelete.messageId}?mailbox=${selectedMailbox}&folder=${messageToDelete.folder}`,
+        `${API_BASE_URL}/api/voicemail/messages/${messageToDelete.messageId}?mailbox=${selectedMailbox}&folder=${messageToDelete.folder}`,
         {
           method: 'DELETE',
           headers: { 'Authorization': `Bearer ${token}` }
         }
       )
+
+      if (response.status === 401) {
+        setError('Session expired. Please log in again.')
+        localStorage.removeItem('isAuthenticated')
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+        navigate('/login')
+        return
+      }
 
       if (response.ok) {
         // Find the deleted message to check if it was "new"

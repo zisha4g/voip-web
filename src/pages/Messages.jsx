@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { 
   Box, 
   Typography, 
@@ -33,6 +34,7 @@ import DeleteConfirmDialog from '../components/DeleteConfirmDialog'
 const API_BASE_URL = 'http://localhost:8000'
 
 function Messages() {
+  const navigate = useNavigate()
   const [conversations, setConversations] = useState([])
   const [selectedContact, setSelectedContact] = useState(null)
   const [isComposingNew, setIsComposingNew] = useState(false)
@@ -80,6 +82,14 @@ function Messages() {
     return token
   }
 
+  const handleUnauthorized = () => {
+    setError('Session expired. Please log in again.')
+    localStorage.removeItem('isAuthenticated')
+    localStorage.removeItem('token')
+    localStorage.removeItem('user')
+    navigate('/login')
+  }
+
   const extractArrayFromResponse = (data, preferredKey) => {
     if (Array.isArray(data)) return data
     if (data?.success && data?.data) {
@@ -113,6 +123,11 @@ function Messages() {
           headers: { 'Authorization': `Bearer ${token}` }
         })
       ])
+
+      if (smsResponse.status === 401 || mmsResponse.status === 401) {
+        handleUnauthorized()
+        return
+      }
 
       if (!smsResponse.ok) {
         setError('Failed to load SMS messages')
@@ -239,6 +254,11 @@ function Messages() {
               body: formData
             })
 
+            if (uploadResponse.status === 401) {
+              handleUnauthorized()
+              return
+            }
+
             const uploadData = await uploadResponse.json().catch(() => null)
             if (!uploadResponse.ok || !uploadData?.success) {
               if (uploadResponse.status === 404) {
@@ -285,6 +305,11 @@ function Messages() {
           })
         })
 
+        if (response.status === 401) {
+          handleUnauthorized()
+          return
+        }
+
         if (response.ok) {
           setMessageText('')
           setImageFile(null)
@@ -313,6 +338,11 @@ function Messages() {
             message: messageText
           })
         })
+
+        if (response.status === 401) {
+          handleUnauthorized()
+          return
+        }
 
         if (response.ok) {
           setMessageText('')

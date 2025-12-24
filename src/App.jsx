@@ -15,6 +15,15 @@ import RingGroups from './pages/RingGroups'
 import Billing from './pages/Billing'
 import Settings from './pages/Settings'
 
+function RequireAuth({ children }) {
+  const token = localStorage.getItem('token')
+  const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true'
+  if (!token || !isAuthenticated) {
+    return <Navigate to="/login" replace />
+  }
+  return children
+}
+
 function App() {
   return (
     <BrowserRouter>
@@ -24,7 +33,11 @@ function App() {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         
         {/* Protected routes with Layout */}
-        <Route element={<Layout />}>
+        <Route element={(
+          <RequireAuth>
+            <Layout />
+          </RequireAuth>
+        )}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/phone" element={<Phone />} />
           <Route path="/messages" element={<Messages />} />
