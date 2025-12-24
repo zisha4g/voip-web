@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Box, Typography, Card, CardContent, TextField, Button, Grid, Switch, FormControlLabel, Divider, Alert, CircularProgress } from '@mui/material'
 import SaveIcon from '@mui/icons-material/Save'
+import { API_BASE_URL } from '../config/api'
 
 function Settings() {
   // Get user data from localStorage
@@ -34,7 +35,7 @@ function Settings() {
 
     try {
       const token = localStorage.getItem('token')
-      const response = await fetch('http://localhost:8000/api/auth/change-password', {
+      const response = await fetch(`${API_BASE_URL}/api/auth/change-password`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',

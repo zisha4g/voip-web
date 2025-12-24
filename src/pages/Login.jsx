@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Container, Box, TextField, Button, Typography, Paper, Alert, CircularProgress } from '@mui/material'
 import PhoneIcon from '@mui/icons-material/Phone'
+import { API_BASE_URL } from '../config/api'
 
 function Login() {
   const [email, setEmail] = useState('')
@@ -16,7 +17,7 @@ function Login() {
     setLoading(true)
 
     try {
-      const response = await fetch('http://localhost:8000/api/auth/login', {
+      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
@@ -33,7 +34,7 @@ function Login() {
         setError(data.error || 'Login failed')
       }
     } catch (err) {
-      setError('Connection error. Make sure backend is running on http://localhost:8000')
+      setError(`Connection error. Make sure backend is running on ${API_BASE_URL}`)
       console.error('Login error:', err)
     } finally {
       setLoading(false)

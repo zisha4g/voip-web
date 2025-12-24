@@ -5,8 +5,7 @@ import DeleteConfirmDialog from '../components/DeleteConfirmDialog'
 import AudioPlayer from '../components/AudioPlayer'
 import VoicemailItem from '../components/VoicemailItem'
 import StatsCard from '../components/StatsCard'
-
-const API_BASE_URL = 'http://localhost:8000'
+import { API_BASE_URL } from '../config/api'
 
 function Voicemail() {
   const navigate = useNavigate()

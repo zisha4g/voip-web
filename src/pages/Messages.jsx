@@ -30,8 +30,7 @@ import AddIcon from '@mui/icons-material/Add'
 import DeleteIcon from '@mui/icons-material/Delete'
 import ImageIcon from '@mui/icons-material/Image'
 import DeleteConfirmDialog from '../components/DeleteConfirmDialog'
-
-const API_BASE_URL = 'http://localhost:8000'
+import { API_BASE_URL } from '../config/api'
 
 function Messages() {
   const navigate = useNavigate()

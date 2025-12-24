@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Container, Box, TextField, Button, Typography, Paper, Alert, CircularProgress } from '@mui/material'
 import PhoneIcon from '@mui/icons-material/Phone'
+import { API_BASE_URL } from '../config/api'
 
 function Register() {
   const [email, setEmail] = useState('')
@@ -31,7 +32,7 @@ function Register() {
     setLoading(true)
 
     try {
-      const response = await fetch('http://localhost:8000/api/auth/register', {
+      const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
@@ -48,7 +49,7 @@ function Register() {
         setError(data.error || 'Registration failed. Email may not exist in VoIP.ms system.')
       }
     } catch (err) {
-      setError('Connection error. Make sure backend is running on http://localhost:8000')
+      setError(`Connection error. Make sure backend is running on ${API_BASE_URL}`)
       console.error('Registration error:', err)
     } finally {
       setLoading(false)
